@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>감정 분석 리포트 - 감정 일기 분석기</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Pretendard', 'Noto Sans KR', Arial, sans-serif; background: linear-gradient(135deg, #fff8f0 0%, #ffe0b2 100%); margin:0; }
+        .container { max-width: 700px; margin: 40px auto; background: #fffaf6; border-radius: 18px; box-shadow: 0 8px 32px rgba(255,183,77,0.13); padding: 2.5em 2em 2em 2em; }
+        h1 { text-align: center; color: #d17b00; font-weight: 700; margin-bottom: 1.2em; letter-spacing: 0.01em; }
+        .nav { text-align: center; margin-bottom: 1.5em; }
+        .nav a { color: #ffb366; text-decoration: none; font-weight: 600; margin: 0 0.5em; }
+        .nav a:hover { text-decoration: underline; }
+        table { width:100%; border-collapse:collapse; margin-top:1em; }
+        th, td { border:1px solid #ffe0b2; padding:0.7em 0.5em; text-align:center; }
+        th { background:#fff8f0; color:#d17b00; }
+        .state { font-weight: 600; color: #d17b00; }
+        .score-bar { height: 10px; border-radius: 5px; background: #ffe0b2; margin: 0.2em 0; }
+        .score-fill { height: 10px; border-radius: 5px; background: #ffb366; }
+        .msg { color: #d17b00; font-size: 0.98em; }
+        @media (max-width: 800px) { .container { padding: 1.2em 0.5em; } }
+    </style>
+</head>
+<body>
+    <div class="nav-container">
+        <nav class="nav">
+            <a href="/" class="logo">감정 일기 분석기</a>
+            <div class="nav-links">
+                <a href="/diary" class="btn">일기 쓰기</a>
+                <a href="/static/history.html" class="btn btn-primary">리포트</a>
+            </div>
+        </nav>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h2>감정 추이</h2>
+            <div class="chart-container">
+                <canvas id="emotionChart"></canvas>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="avgScore">-</div>
+                <div class="stat-label">평균 감정 점수</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="entryCount">-</div>
+                <div class="stat-label">작성한 일기 수</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="posRatio">-</div>
+                <div class="stat-label">긍정적인 날</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>최근 기록</h2>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+    <script src="/static/js/history.js"></script>
+    <script>
+    async function fetchHistory() {
+        const res = await fetch('/history?period=all');
+        return await res.json();
+    }
+    function getStateIcon(state) {
+        if (!state || state === '-') return '🌫️';
+        if (state.includes('햇살') || state.includes('맑음') || state.includes('따스') || state.includes('밝은')) return '☀️';
+        if (state.includes('잔잔') || state.includes('평온') || state.includes('고요') || state.includes('평화')) return '🌤️';
+        if (state.includes('구름') || state.includes('흐림') || state.includes('비') || state.includes('바람') || state.includes('안개')) return '☁️';
+        if (state.includes('힘들') || state.includes('지친') || state.includes('폭풍') || state.includes('어두운') || state.includes('우울')) return '🌧️';
+        return '🌫️';
+    }
+    function renderHistoryTable(history, limit=7) {
+        const tbody = document.getElementById('historyTable');
+        if (!history.length) {
+            tbody.innerHTML = '<tr><td colspan="6">아직 기록이 없습니다.</td></tr>';
+            return;
+        }
+        let shown = history.slice(-limit);
+        tbody.innerHTML = shown.map(h => `
+            <tr>
+                <td>${h.date}</td>
+                <td class="state">${getStateIcon(h.today_state)} ${h.today_state || '-'}</td>
+                <td>
+                    <div class="score-bar">
+                        <div class="score-fill" style="width:${Math.min(Math.round(h.score || 0), 100)}%"></div>
+                    </div>
+                    <span>${Math.min(Math.round(h.score || 0), 100)}%</span>
+                </td>
+                <td class="msg">${h.empathy_message || '-'}</td>
+                <td class="msg">${h.hope_message || '-'}</td>
+                <td>${h.diary ? `<span style='color:#888;'>${h.diary.replace(/\n/g,'<br>')}</span>` : '-'}</td>
+            </tr>
+        `).join('');
+        // 더 보기 버튼
+        const container = document.querySelector('.container');
+        let moreBtn = document.getElementById('moreHistoryBtn');
+        if (history.length > limit && !moreBtn) {
+            moreBtn = document.createElement('button');
+            moreBtn.id = 'moreHistoryBtn';
+            moreBtn.textContent = '더 보기';
+            moreBtn.style = 'margin:1.2em auto 0 auto; display:block; background:#ffb366; color:#fff; border:none; border-radius:8px; padding:0.7em 2em; font-size:1em; cursor:pointer;';
+            moreBtn.onclick = function() {
+                renderHistoryTable(history, history.length);
+                moreBtn.remove();
+            };
+            container.appendChild(moreBtn);
+        }
+    }
+    async function main() {
+        const data = await fetchHistory();
+        renderHistoryTable(data.history);
+    }
+    main();
+    </script>
+</body>
+</html>

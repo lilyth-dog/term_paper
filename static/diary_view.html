@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>일기 상세 보기</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Pretendard', 'Noto Sans KR', Arial, sans-serif; background: linear-gradient(135deg, #fff8f0 0%, #ffe0b2 100%); margin:0; }
+        .container { max-width: 500px; margin: 40px auto; background: #fffaf6; border-radius: 18px; box-shadow: 0 8px 32px rgba(255,183,77,0.13); padding: 2.5em 2em 2em 2em; }
+        h1 { text-align: center; color: #d17b00; font-weight: 700; margin-bottom: 1.2em; letter-spacing: 0.01em; }
+        .nav { text-align: center; margin-bottom: 1.5em; }
+        .nav a { color: #ffb366; text-decoration: none; font-weight: 600; margin: 0 0.5em; }
+        .nav a:hover { text-decoration: underline; }
+        .section { margin-bottom: 2em; }
+        .label { color: #ffb366; font-weight: 600; margin-right: 0.5em; }
+        .diary-box { background: #fff3e0; border-radius: 10px; padding: 1em; margin-bottom: 1.2em; color: #d17b00; }
+        .resp-box { background: #fff8f0; border-radius: 10px; padding: 1em; color: #d17b00; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/">감정 일기</a> |
+            <a href="/static/report.html">리포트</a> |
+            <a href="/static/empathy.html">공감·행동</a> |
+            <a href="/static/history.html">히스토리</a>
+        </div>
+        <h1>일기 상세 보기</h1>
+        <div class="section">
+            <span class="label">날짜:</span><span id="date"></span>
+        </div>
+        <div class="section diary-box">
+            <span class="label">일기</span><br>
+            <span id="diary"></span>
+        </div>
+        <div class="section resp-box">
+            <div><span class="label">감정 상태</span><span id="state"></span></div>
+            <div><span class="label">감정 메시지</span><span id="msg"></span></div>
+            <div><span class="label">공감</span><span id="empathy"></span></div>
+            <div><span class="label">행동 제안</span><span id="action"></span></div>
+            <div><span class="label">희망 메시지</span><span id="hope"></span></div>
+        </div>
+    </div>
+    <script>
+    function getQueryParam(name) {
+        const url = new URL(window.location.href);
+        return url.searchParams.get(name);
+    }
+    async function fetchDiary(date, idx=0) {
+        const res = await fetch(`/diary_entry?date=${encodeURIComponent(date)}&idx=${idx}`);
+        return await res.json();
+    }
+    async function updateDiary(date, newDiary) {
+        const res = await fetch('/diary_entry', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date, diary: newDiary })
+        });
+        return await res.json();
+    }
+    async function main() {
+        const date = getQueryParam('date');
+        const idx = parseInt(getQueryParam('idx')||'0',10);
+        if (!date) {
+            document.getElementById('date').innerText = '-';
+            document.getElementById('diary').innerText = '날짜 정보가 없습니다.';
+            return;
+        }
+        document.getElementById('date').innerText = date;
+        const entry = await fetchDiary(date, idx);
+        if (!entry || entry.error) {
+            document.getElementById('diary').innerText = '해당 날짜의 일기 기록이 없습니다.';
+            return;
+        }
+        document.getElementById('diary').innerText = entry.diary || '-';
+        document.getElementById('state').innerText = entry.today_state || '-';
+        document.getElementById('msg').innerText = entry.today_message || '-';
+        document.getElementById('empathy').innerText = entry.empathy_message || '-';
+        document.getElementById('action').innerText = entry.action_suggestion || '-';
+        document.getElementById('hope').innerText = entry.hope_message || '-';
+
+        // 수정 UI 추가
+        const diaryBox = document.querySelector('.diary-box');
+        const editBtn = document.createElement('button');
+        editBtn.textContent = '수정';
+        editBtn.style = 'margin-top:1em; background:#ffb366; color:#fff; border:none; border-radius:8px; padding:0.5em 1.2em; font-size:1em; cursor:pointer;';
+        diaryBox.appendChild(editBtn);
+
+        // 취소 버튼을 위한 컨테이너
+        const editContainer = document.createElement('div');
+        editContainer.style.display = 'none';
+        diaryBox.appendChild(editContainer);
+
+        editBtn.onclick = function() {
+            // 수정 폼 표시
+            editContainer.innerHTML = `
+                <div style="margin-bottom:1em;">
+                    <textarea style="width:100%;min-height:100px;font-size:1.05em;border-radius:8px;border:1.5px solid #ffd699;padding:0.7em;">${entry.diary||''}</textarea>
+                </div>
+                <div style="display:flex; gap:10px; justify-content:flex-end;">
+                    <button type="button" style="background:#fff; color:#d17b00; border:1px solid #ffd699; border-radius:8px; padding:0.5em 1.2em; font-size:1em; cursor:pointer;" onclick="editContainer.style.display='none';">취소</button>
+                    <button type="button" style="background:#d17b00; color:#fff; border:none; border-radius:8px; padding:0.5em 1.2em; font-size:1em; cursor:pointer;" onclick="saveDiary()">저장</button>
+                </div>`;
+            editContainer.style.display = 'block';
+
+            // 수정 취소 시 원래 내용으로 복원
+            editContainer.querySelector('textarea').value = entry.diary || '';
+        };
+
+        // 저장 함수
+        window.saveDiary = async function() {
+            const newDiary = editContainer.querySelector('textarea').value;
+            if (!newDiary.trim()) {
+                alert('일기 내용을 입력해주세요.');
+                return;
+            }
+
+            try {
+                editBtn.disabled = true;
+                editBtn.textContent = '수정 중...';
+
+                const updated = await updateDiary(date, newDiary);
+                if (updated && !updated.error) {
+                    alert('수정 완료!');
+                    location.reload();
+                } else {
+                    throw new Error(updated.error || '수정 중 오류가 발생했습니다.');
+                }
+            } catch (error) {
+                alert(`수정 실패: ${error.message}`);
+            } finally {
+                editBtn.disabled = false;
+                editBtn.textContent = '수정';
+            }
+        };
+    }
+    main();
+    </script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>감정 연못</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Pretendard', 'Noto Sans KR', Arial, sans-serif; background: linear-gradient(135deg, #fff8f0 0%, #ffe0b2 100%); margin:0; }
+        .container { max-width: 700px; margin: 40px auto; background: #fffaf6; border-radius: 18px; box-shadow: 0 8px 32px rgba(255,183,77,0.13); padding: 2.5em 2em 2em 2em; }
+        h1 { text-align: center; color: #d17b00; font-weight: 700; margin-bottom: 1.2em; letter-spacing: 0.01em; }
+        .section { margin-bottom: 2.5em; }
+        .feedback-box { background: #fff3e0; border-radius: 12px; padding: 1.2em 1em; color: #d17b00; font-weight: 500; margin-bottom: 1.5em; }
+        .stat-table { width:100%; border-collapse:collapse; margin-top:1em; }
+        .stat-table th, .stat-table td { border:1px solid #ffe0b2; padding:0.7em 0.5em; text-align:center; }
+        .stat-table th { background:#fff8f0; color:#d17b00; }
+        .trend-chart-wrap { margin:2em 0; }
+        .tag { display:inline-block; background:#ffe0b2; color:#d17b00; border-radius:6px; padding:0.2em 0.7em; font-size:0.95em; margin-right:0.5em; }
+        @media (max-width: 800px) { .container { padding: 1.2em 0.5em; } }
+        .nav { text-align: center; margin-bottom: 1.5em; }
+        .nav a { color: #ffb366; text-decoration: none; font-weight: 500; margin: 0 0.5em; }
+        .nav a:hover { text-decoration: underline; }
+        #todayState, #todayMsg, #trendFeedback, #hopeMsg, #empathyMsg, #actionMsg { font-family: 'Pretendard', 'Noto Sans KR', Arial, sans-serif; }
+        #todayState { color: #d17b00; }
+        #todayMsg { color: #ff9800; }
+        #trendFeedback { color: #bfa26a; }
+        #hopeMsg { color: #ffb366; }
+        #empathyMsg, #actionMsg { color: #d17b00; }
+        /* 차트 폰트/색상 */
+        canvas { background: #fffaf6; border-radius: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/">감정 일기</a> |
+            <a href="/static/report.html">리포트</a> |
+            <a href="/static/empathy.html">공감·행동</a>
+        </div>
+        <h1>감정 연못</h1>
+        <div class="section feedback-box" id="advancedFeedback"></div>
+        <div class="section">
+            <h2>오늘의 하루</h2>
+            <div id="todayState" style="font-size:1.3em; margin-bottom:0.5em;"></div>
+            <div id="todayMsg" style="color:#4b3fa7; font-size:1.1em;"></div>
+            <div id="hopeMsg" style="color:#6c63ff; margin-top:0.5em;"></div>
+        </div>
+        <div class="section">
+            <h2>오늘의 공감과 제안</h2>
+            <div id="empathyMsg" style="margin-bottom:0.7em;"></div>
+            <div id="actionMsg"></div>
+        </div>
+        <div class="section">
+            <h2>감정 점수 추이</h2>
+            <div class="trend-chart-wrap"><canvas id="trendChart" height="100"></canvas></div>
+        </div>
+        <div class="section">
+            <h2>감정 통계</h2>
+            <table class="stat-table">
+                <thead><tr><th>구분</th><th>값</th></tr></thead>
+                <tbody id="statTable"></tbody>
+            </table>
+        </div>
+        <div class="section">
+            <h2>감정 패턴 및 맞춤 피드백</h2>
+            <ul id="patternList"></ul>
+        </div>
+        <div id="loading" style="text-align:center; font-size:1.2em; color:#d17b00;">Loading...</div>
+    </div>
+    <script>
+    async function fetchWithTimeout(resource, options = {}) {
+        const { timeout = 5000 } = options; // Default timeout of 5 seconds
+
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+
+        const response = await fetch(resource, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(id);
+
+        return response;
+    }
+
+    async function fetchHistory() {
+        try {
+            console.log('Fetching history data...');
+            const res = await fetchWithTimeout('/history?period=all', { timeout: 5000 });
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            const data = await res.json();
+            console.log('History data fetched successfully:', data);
+            return data;
+        } catch (error) {
+            console.error('Error fetching history data:', error);
+            return { history: [], avg_score: 0, count: 0 }; // Return default data structure
+        }
+    }
+    function getTodayData(latest) {
+        if (!latest) return {state:'-', msg:'-', trend:'', hope:'', empathy:'', action:''};
+        return {
+            state: latest.today_state || '-',
+            msg: latest.today_message || '-',
+            trend: latest.trend_feedback || '',
+            hope: latest.hope_message || '',
+            empathy: latest.empathy_message || '',
+            action: latest.action_suggestion || ''
+        };
+    }
+    function getAdvancedFeedback(history, avg, ratio) {
+        if (!history.length) return '아직 데이터가 부족합니다.';
+        const last = history[history.length-1];
+        let msg = '';
+        if (last.score < 0.3) msg += '최근 감정이 많이 저조합니다. 충분한 휴식과 자기 돌봄이 필요해 보여요.\n';
+        if (last.sentiment === '부정') msg += '오늘 부정적 감정이 감지되었습니다. 가까운 친구나 가족과 대화를 나눠보세요.\n';
+        if (avg > 0.7) msg += '전반적으로 긍정적인 감정이 우세합니다. 좋은 습관을 계속 유지해보세요!\n';
+        if (ratio['부정'] > 40) msg += '부정적 감정 비율이 높아요. 스트레스 관리에 신경 써보세요.\n';
+        if (ratio['긍정'] > 60) msg += '긍정적 감정이 뚜렷하게 많아요. 자신감을 가져도 좋습니다!\n';
+        if (!msg) msg = '감정이 비교적 안정적으로 유지되고 있습니다.';
+        return msg.replace(/\n/g, '<br>');
+    }
+    function getPatternList(history) {
+        const patterns = [];
+        if (history.length < 7) {
+            patterns.push('일주일 이상 기록이 쌓이면 더 정밀한 패턴 분석이 제공됩니다.');
+            return patterns;
+        }
+        // 7일 이동평균 변화
+        for (let i=7; i<history.length; i++) {
+            const prev = history.slice(i-7,i).reduce((a,b)=>a+b.score,0)/7;
+            const curr = history.slice(i-6,i+1).reduce((a,b)=>a+b.score,0)/7;
+            if (curr-prev > 0.15) patterns.push(`${history[i].date} 기준 최근 1주 감정이 뚜렷하게 상승했습니다.`);
+            if (curr-prev < -0.15) patterns.push(`${history[i].date} 기준 최근 1주 감정이 뚜렷하게 하락했습니다.`);
+        }
+        if (!patterns.length) patterns.push('최근 감정 변화가 뚜렷하지 않습니다.');
+        return patterns;
+    }
+    function renderStats(avg, ratio, count) {
+        const statTable = document.getElementById('statTable');
+        statTable.innerHTML = `
+            <tr><td>전체 평균 점수</td><td><b>${avg}</b></td></tr>
+            <tr><td>긍정 비율</td><td>${ratio['긍정']||0}%</td></tr>
+            <tr><td>중립 비율</td><td>${ratio['중립']||0}%</td></tr>
+            <tr><td>부정 비율</td><td>${ratio['부정']||0}%</td></tr>
+            <tr><td>총 기록 수</td><td>${count}</td></tr>
+        `;
+    }
+    function renderTrendChart(history) {
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: history.map(h=>h.date),
+                datasets: [{
+                    label: '감정 점수',
+                    data: history.map(h=>h.score),
+                    borderColor: '#ffb366',
+                    backgroundColor: 'rgba(255,183,77,0.13)',
+                    tension: 0.3,
+                    fill: true,
+                    pointRadius: 6,
+                    pointHoverRadius: 9,
+                    pointBackgroundColor: '#ffd699',
+                    pointBorderColor: '#ff9800',
+                    borderWidth: 3,
+                }]
+            },
+            options: {
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#fff3e0',
+                        titleColor: '#d17b00',
+                        bodyColor: '#d17b00',
+                        borderColor: '#ffd699',
+                        borderWidth: 1,
+                        titleFont: { family: 'Pretendard, Noto Sans KR, Arial, sans-serif', weight: 'bold' },
+                        bodyFont: { family: 'Pretendard, Noto Sans KR, Arial, sans-serif' }
+                    }
+                },
+                scales: {
+                    y: {
+                        min: 0, max: 100,
+                        ticks: { color: '#d17b00', font: { family: 'Pretendard, Noto Sans KR', size: 14 } },
+                        grid: { color: '#ffe0b2' }
+                    },
+                    x: {
+                        ticks: { color: '#d17b00', font: { family: 'Pretendard, Noto Sans KR', size: 13 } },
+                        grid: { color: '#fff3e0' }
+                    }
+                },
+                responsive: true,
+                onClick: (e, elements) => {
+                    if (elements.length > 0) {
+                        const idx = elements[0].index;
+                        const entry = history[idx];
+                        if (entry) {
+                            window.open(`/static/diary_view.html?date=${encodeURIComponent(entry.date)}`,'_blank');
+                        }
+                    }
+                }
+            }
+        });
+    }
+    function renderPatternList(patterns) {
+        const ul = document.getElementById('patternList');
+        ul.innerHTML = patterns.map(p=>`<li>${p}</li>`).join('');
+    }
+    // 감정 점수 기반 비율 계산 (긍정/중립/부정 대신 점수 구간)
+    function getSentimentRatio(history) {
+        let pos=0, neu=0, neg=0;
+        history.forEach(h=>{
+            const normalizedScore = h.score / 100; // 점수를 0.0~1.0 범위로 변환
+            if (normalizedScore >= 0.7) pos++;
+            else if (normalizedScore >= 0.4) neu++;
+            else neg++;
+        });
+        const total = history.length || 1;
+        return {
+            '긍정': Math.round(pos/total*100),
+            '중립': Math.round(neu/total*100),
+            '부정': Math.round(neg/total*100)
+        };
+    }
+    async function main() {
+        const loadingElement = document.getElementById('loading');
+        try {
+            console.log('Initializing main function...');
+            const data = await fetchHistory();
+            loadingElement.style.display = 'none'; // Hide loading indicator
+
+            if (!data || !data.history) {
+                throw new Error('Invalid or empty response from /history endpoint');
+            }
+
+            const latest = data.history.length ? data.history[data.history.length-1] : null;
+            const today = getTodayData(latest);
+            document.getElementById('todayState').innerText = today.state;
+            document.getElementById('todayMsg').innerText = today.msg;
+            document.getElementById('hopeMsg').innerText = today.hope;
+            document.getElementById('empathyMsg').innerText = today.empathy;
+            document.getElementById('actionMsg').innerText = today.action;
+
+            const sentiment_ratio = getSentimentRatio(data.history);
+            document.getElementById('advancedFeedback').innerHTML = getAdvancedFeedback(data.history, data.avg_score, sentiment_ratio);
+            renderStats(data.avg_score, sentiment_ratio, data.count);
+            renderTrendChart(data.history);
+            renderPatternList(getPatternList(data.history));
+        } catch (error) {
+            console.error('Error in main function:', error);
+            loadingElement.innerText = 'Failed to load data. Please try again later.';
+        }
+    }
+    main();
+    </script>
+</body>
+</html>

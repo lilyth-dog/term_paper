@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>공감·행동·위기 피드백</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Pretendard', 'Noto Sans KR', Arial, sans-serif; background: linear-gradient(135deg, #fff8f0 0%, #ffe0b2 100%); margin:0; }
+        .container { max-width: 420px; margin: 40px auto; background: #fffaf6; border-radius: 18px; box-shadow: 0 8px 32px rgba(255,183,77,0.13); padding: 2.2em 1.2em 2em 1.2em; }
+        h1 { text-align: center; color: #d17b00; font-weight: 700; margin-bottom: 1.2em; letter-spacing: 0.01em; }
+        .card { background: #fff3e0; border-radius: 12px; padding: 1.2em 1em; color: #d17b00; font-weight: 500; margin-bottom: 1.5em; box-shadow: 0 2px 8px #ffe0b2; }
+        .card-title { font-size:1.1em; font-weight:700; margin-bottom:0.5em; color:#ffb366; }
+        .nav { text-align:center; margin-bottom:2em; }
+        .nav a { color:#ffb366; text-decoration:none; margin:0 1em; font-weight:600; }
+        .nav a:hover { text-decoration:underline; }
+        @media (max-width: 600px) { .container { padding: 1em 0.2em; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/">감정 일기</a> |
+            <a href="/static/report.html">리포트</a> |
+            <a href="/static/empathy.html"><b>공감·행동</b></a>
+        </div>
+        <h1>오늘의 정서적 지원</h1>
+        <div class="card" id="empathyCard">
+            <div class="card-title">공감 메시지</div>
+            <div id="empathyMsg">로딩 중...</div>
+        </div>
+        <div class="card" id="actionCard">
+            <div class="card-title">실천 행동 제안</div>
+            <div id="actionMsg">로딩 중...</div>
+        </div>
+        <div class="card" id="crisisCard">
+            <div class="card-title">위기 신호 및 도움말</div>
+            <div id="crisisMsg">로딩 중...</div>
+        </div>
+    </div>
+    <script>
+    async function fetchLatestFeedback() {
+        // 최신 기록에서 LLM 포맷에 맞는 피드백 추출 (예시)
+        const res = await fetch('/history?period=7');
+        const data = await res.json();
+        if (!data.history.length) {
+            document.getElementById('empathyMsg').innerText = '아직 기록이 없습니다.';
+            document.getElementById('actionMsg').innerText = '';
+            document.getElementById('crisisMsg').innerText = '';
+            return;
+        }
+        // 실제 서비스에서는 LLM 통합 응답에서 추출
+        // 여기서는 가장 최근 기록의 메시지/피드백 예시
+        const last = data.history[data.history.length-1];
+        document.getElementById('empathyMsg').innerText = last.empathy_message || '오늘의 공감 메시지가 없습니다.';
+        document.getElementById('actionMsg').innerText = last.action_suggestion || '오늘은 산책, 명상, 친구와 대화 등 마음을 환기할 수 있는 행동을 시도해보세요.';
+        document.getElementById('crisisMsg').innerText = (last.score < 0.3) ? '최근 감정 점수가 낮아요. 필요하다면 주변에 도움을 요청하세요.' : '위기 신호는 감지되지 않았습니다.';
+    }
+    fetchLatestFeedback();
+    </script>
+</body>
+</html>
